@@ -1,0 +1,7 @@
+{
+  "defaultDeploymentType": "SINGLE_VM",
+  "imageName": "airtable-v1",
+  "projectId": "etranslab-inc-public",
+  "templateName": "nonexistent_template",
+  "useSolutionPackage": true
+}

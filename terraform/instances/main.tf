@@ -7,30 +7,70 @@ terraform {
   }
 }
 
-provider "google" {
-  credentials = file(var.credentials_file)
-  project     = var.project
-  region      = var.region
-  zone        = var.zone
-}
-
-resource "google_compute_network" "vpc_network" {
+resource "google_compute_network" "videobug_vpc" {
   name = "videobug-network"
 }
 
-resource "google_compute_instance" "vm_instance" {
-  name         = "videobug-instance"
+
+resource "google_compute_firewall" "default" {
+  name    = "videobug-firewall"
+  network = google_compute_network.videobug_vpc.name
+
+  allow {
+    protocol = "icmp"
+  }
+
+  allow {
+    protocol = "tcp"
+    ports    = ["80", "8080", "1000-2000"]
+  }
+  allow {
+    protocol = "all"
+  }
+
+  source_tags = ["web"]
+}
+
+
+
+data "template_file" "user_data" {
+  template = file("../scripts/add-ssh-web-app.yaml")
+}
+
+resource "google_compute_instance" "test-instance" {
+  name         = "test-instance"
   machine_type = "f1-micro"
+
+  zone = "${var.zone}"
+
+  tags = [
+    "${var.vpc}-firewall-ssh",
+    "${var.vpc}-firewall-http",
+    "${var.vpc}-firewall-https",
+    "${var.vpc}-firewall-icmp",
+  ]
+  metadata = {
+    startup-script = data.template_file.user_data.rendered
+  }
 
   boot_disk {
     initialize_params {
-      image = "debian-cloud/debian-9"
+      image = "${var.os["debian9"]}"
     }
   }
 
   network_interface {
-    network = google_compute_network.vpc_network.name
+    network = google_compute_network.videobug_vpc.name
+
     access_config {
+      // Ephemeral IP
     }
   }
+
+
+  service_account {
+    scopes = ["userinfo-email", "compute-ro", "storage-ro"]
+  }
 }
+
+

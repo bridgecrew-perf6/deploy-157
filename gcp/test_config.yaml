@@ -1,0 +1,8 @@
+imports:
+- path: airtable.jinja
+
+resources:
+- name: airtable
+  type: airtable.jinja
+  properties:
+    zone: us-central1-f

@@ -1,0 +1,30 @@
+#cloud-config
+# Add groups to the system
+# Adds the ubuntu group with members 'root' and 'sys'
+# and the empty group videobug.
+groups:
+  - ubuntu: [root,sys]
+  - videobug
+
+# Add users to the system. Users are added after groups are added.
+users:
+  - default
+  - name: videobug
+    gecos: videobug
+    shell: /bin/bash
+    primary_group: videobug
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    groups: users, admin
+    lock_passwd: false
+
+# Downloads the golang package
+packages:
+  - videobug-server
+
+# Sets the GOPATH & downloads the demo payload
+runcmd:
+  - sudo su videobug
+  - sudo mkdir /home/videobug/go
+  - sudo chown videobug:videobug /home/videobug/go
+  - export GOPATH=/home/videobug/go
+  - go get github.com/videobug/learn-go-webapp-demo
