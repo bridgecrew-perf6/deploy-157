@@ -2,50 +2,97 @@
 
 {% set project = env["project"] %}
 {% set deployment = env["deployment"] %}
-{% set name = "%s-vm-tmpl" % env["name"] %}
+{% set accessKey = env["accessKey"] %}
+{% set secretKey = env["secretKey"] %}
+{% set region = properties["region"] %}
+{% set name = env["name"] %}
 {% set instanceName = "%s-vm" % deployment %}
 {% set zone = properties["zone"] %}
 {% set machineType = properties["machineType"] %}
 {% set networks = [] %}
-{% for network in properties["network"] %}
-{% set _ = networks.append(path_utils.networkPath(network)) %}
-{% endfor %}
+{% set aerospikeNodes = ["1", "2"] %}
+{% set videobugNodes = ["1"] %}
 {% set subnetworks = properties["subnetwork"] %}
 {% set externalIPs = properties["externalIP"] %}
 {% set bootDiskType = properties["bootDiskType"] %}
 {% set bootDiskSizeGb = properties["bootDiskSizeGb"] %}
-{% set hasExternalIP = externalIPs and externalIPs[0] != "NONE" %}
-{# Software status only works if the VM has an external IP. #}
-{% set enableStatusWaiter = hasExternalIP %}
-{% set canIpForward = properties["ipForward"] == "On" %}
 
 resources:
-  - name: {{ name }}
-    type: vm_instance.py
+  - name: videobug-network
+    type: compute.v1.network
     properties:
-      instanceName: {{ instanceName }}
-      sourceImage: https://www.googleapis.com/compute/v1/projects/shining-camp-344911/global/images/aerospike-node-image
+      name: videobug-network
+      autoCreateSubnetworks: true
+  - name: videobug-subnet
+    type: compute.v1.subnetwork
+    properties:
+      name: videobug-subnet
+      network: $(ref.videobug-network.selfLink)
+      ipCidrRange: 192.168.1.0/24
+      region: {{ region }}
+  - name: videobug-router
+    type: compute.v1.router
+    properties:
+      region: {{ region }}
+      nats:
+        - name: videobug-nat-config
+          natIpAllocateOption: AUTO_ONLY
+          sourceSubnetworkIpRangesToNat: ALL_SUBNETWORKS_ALL_IP_RANGES
+          region: {{ region }}
+      network: $(ref.videobug-network.selfLink)
+  - name: videobug-firewall
+    type: compute.beta.firewall
+    properties:
+      name: videobug-allow-lb-and-healthcheck
+      network: $(ref.videobug-network.selfLink)
+      sourceRanges:
+        - 130.211.0.0/22
+        - 35.191.0.0/16
+      allowed:
+        - IPProtocol: tcp
+          ports:
+            - 80
+            - 443
+  - name: videobug-iap-firewall
+    type: compute.beta.firewall
+    properties:
+      name: videobug-iap-ssh
+      network: $(ref.videobug-network.selfLink)
+      sourceRanges:
+        - 35.235.240.0/20
+      allowed:
+        - IPProtocol: tcp
+          ports:
+            - 22
+  - name: videobug-aerospike-firewall
+    type: compute.beta.firewall
+    properties:
+      name: videobug-aerospike-ports
+      network: $(ref.videobug-network.selfLink)
+      sourceRanges:
+        - 10.138.0.0/16
+      allowed:
+        - IPProtocol: tcp
+          ports:
+            - 3000
+            - 3001
+            - 3002
+            - 3003
+{% for node in aerospikeNodes %}
+  - name: {{ name }}-aerospike-{{ node }}
+    type: compute.v1.instance
+    properties:
+      instanceName: {{ name }}-aerospike-{{ node }}
+      sourceImage: https://www.googleapis.com/compute/v1/projects/{{ project }}/global/images/aerospike-server-image
       zone: {{ zone }}
-      machineType: {{ machineType }}
+      machineType: zones/{{ zone }}/machineTypes/e2-medium
       networks:
-      {% for network in networks %}
-        - {{ network }}
-      {% endfor %}
-      {% if subnetworks is defined and subnetworks %}
+        - projects/{{ project }}/global/networks/videobug-network
       subnetworks:
-      {% for subnetwork in subnetworks %}
-        - {{ subnetwork or '' }}
-      {% endfor %}
-      {% endif %}
-      {% if externalIPs is defined and externalIPs %}
-      externalIPs:
-      {% for externalIP in externalIPs %}
-        - {{ externalIP }}
-      {% endfor %}
-      {% endif %}
-      bootDiskType: {{ bootDiskType }}
-      bootDiskSizeGb: {{ bootDiskSizeGb }}
-      canIpForward: {{ canIpForward }}
+        - videobug-subnet
+      bootDiskType: projects/{{ project }}/zones/us-west4-b/diskTypes/pd-ssd
+      bootDiskSizeGb: 10
+      canIpForward: false
       serviceAccounts:
         - email: default
           scopes:
@@ -57,45 +104,89 @@ resources:
       tags:
         items:
           - {{ env["deployment"] }}-deployment
-  {% if properties["enableTcp8080"] %}
-  - name: {{ env["deployment"] }}-tcp-8080
-    type: compute.v1.firewall
+          - aerospike-server
+      networkInterfaces:
+      - network: $(ref.videobug-network.selfLink)
+        networkIP: 10.138.0.1{{ node }}
+      disks:
+        - kind: projects/{{ project }}/zones/{{ zone }}/diskTypes/pd-ssd
+          boot: true
+          autoDelete: true
+          diskSizeGb: 10
+          description: videobug-aerospike-bootdisk-{{ node }}
+          initializeParams:
+            diskName: videobug-aerospike-bootdisk-{{ node }}
+            diskSizeGb: 10
+            sourceImage: https://www.googleapis.com/compute/v1/projects/{{ project }}/global/images/aerospike-server-image
+            diskType: projects/{{ project }}/zones/{{ zone }}/diskTypes/pd-ssd
+        - kind: projects/{{ project }}/zones/{{ zone }}/diskTypes/pd-ssd
+          boot: false
+          autoDelete: true
+          diskSizeGb: 50
+          description: videobug-aerospike-datadisk-{{ node }}
+          initializeParams:
+            diskName: videobug-aerospike-datadisk-{{ node }}
+            diskSizeGb: 50
+            diskType: projects/{{ project }}/zones/{{ zone }}/diskTypes/pd-ssd
+{% endfor %}
+{% for node in videobugNodes %}
+  - name: {{ name }}-{{ node }}
+    type: compute.v1.instance
     properties:
-      network: {{ networks[0] }}
-      {% if properties.get("tcp8080SourceRanges") %}
-      sourceRanges:
-        {% for source in properties["tcp8080SourceRanges"].split(',') %}
-        - '{{ source | trim }}'
-        {% endfor %}
-      {% else %}
-      sourceRanges: ["0.0.0.0/0"]
-      {% endif %}
-      targetTags: ["{{ env["deployment"] }}-deployment"]
-      allowed:
-        - IPProtocol: TCP
-          ports: ["8080"]
-  {% endif %}
-
+      instanceName: {{ name }}-{{ node }}
+      sourceImage: https://www.googleapis.com/compute/v1/projects/{{ project }}/global/images/videobug-server
+      zone: {{ zone }}
+      machineType: zones/{{ zone }}/machineTypes/e2-medium
+      metadata:
+        items:
+          - key: startup-script
+            value: |
+              #!/bin/bash
+              snap set videobug-server aerospike-hosts=10.138.0.11:3000
+              snap set videobug-server s3-endpoint=https://storage.googleapis.com
+              snap set videobug-server s3-bucketname=videobug-state
+              snap set videobug-server s3-access-key={{ accessKey }}
+              snap set videobug-server s3-secret-key={{ secretKey }}
+      networks:
+        - projects/{{ project }}/global/networks/videobug-network
+      subnetworks:
+        - videobug-subnet
+      bootDiskType: projects/{{ project }}/zones/us-west4-b/diskTypes/pd-ssd
+      bootDiskSizeGb: 10
+      canIpForward: false
+      serviceAccounts:
+        - email: default
+          scopes:
+            - 'https://www.googleapis.com/auth/cloud.useraccounts.readonly'
+            - 'https://www.googleapis.com/auth/devstorage.read_only'
+            - 'https://www.googleapis.com/auth/logging.write'
+            - 'https://www.googleapis.com/auth/monitoring.write'
+            - 'https://www.googleapis.com/auth/trace.append'
+      tags:
+        items:
+          - {{ env["deployment"] }}-deployment
+          - http-tag
+          - http-server
+          - https-server
+      networkInterfaces:
+      - network: $(ref.videobug-network.selfLink)
+        networkIP: 10.138.0.2{{ node }}
+      disks:
+        - kind: projects/{{ project }}/zones/{{ zone }}/diskTypes/pd-ssd
+          boot: true
+          autoDelete: true
+          diskSizeGb: 10
+          description: videobug-boot-disk-{{ node }}
+          initializeParams:
+            diskName: videobug-disk-{{ node }}
+            diskSizeGb: 10
+            sourceImage: https://www.googleapis.com/compute/v1/projects/{{ project }}/global/images/videobug-server
+            diskType: projects/{{ project }}/zones/{{ zone }}/diskTypes/pd-ssd
+{% endfor %}
 outputs:
   - name: deployment
     value: {{ deployment }}
   - name: project
     value: {{ project }}
-  - name: vmId
-    value: $(ref.{{ instanceName }}.id)
-  - name: vmExternalIP
-    {% if hasExternalIP %}
-    value: $(ref.{{ name }}.ip)
-    {% else %}
-    value: NONE
-    {% endif %}
-  - name: vmInternalIP
-    value: $(ref.{{ name }}.internalIP)
-  - name: vmName
-    value: {{ instanceName }}
-  - name: vmSelfLink
-    value: $(ref.{{ instanceName }}.selfLink)
-  - name: hasExternalIP
-    value: {{ hasExternalIP }}
   - name: mainNetwork
     value: {{ networks[0] }}

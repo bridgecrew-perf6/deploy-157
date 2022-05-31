@@ -105,13 +105,3 @@ outputs:
     type: string
   project:
     type: string
-  vmId:
-    type: string
-  vmExternalIP:
-    type: string
-  vmInternalIP:
-    type: string
-  vmName:
-    type: string
-  vmSelfLink:
-    type: string
