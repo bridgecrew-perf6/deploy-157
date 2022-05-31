@@ -2,10 +2,10 @@
 
 {% set project = env["project"] %}
 {% set deployment = env["deployment"] %}
-{% set accessKey = env["accessKey"] %}
-{% set secretKey = env["secretKey"] %}
+{% set accessKey = properties["accessKey"] %}
+{% set secretKey = properties["secretKey"] %}
 {% set region = properties["region"] %}
-{% set name = env["name"] %}
+{% set name = env["project"] %}
 {% set instanceName = "%s-vm" % deployment %}
 {% set zone = properties["zone"] %}
 {% set machineType = properties["machineType"] %}
@@ -30,6 +30,19 @@ resources:
       network: $(ref.videobug-network.selfLink)
       ipCidrRange: 192.168.1.0/24
       region: {{ region }}
+  - name: videobug-server-group
+    type: compute.v1.instanceGroup
+    properties:
+      name: videobug-server-group
+      network: $(ref.videobug-network.selfLink)
+      subnetwork: $(ref.videobug-subnet.selfLink)
+      region: {{ region }}
+      zone: {{ zone }}
+      namedPorts:
+        - name: videobug-server-port
+          port: 80
+        - name: videobug-server-https
+          port: 443
   - name: videobug-router
     type: compute.v1.router
     properties:
@@ -145,6 +158,7 @@ resources:
               snap set videobug-server aerospike-hosts=10.138.0.11:3000
               snap set videobug-server s3-endpoint=https://storage.googleapis.com
               snap set videobug-server s3-bucketname=videobug-state
+              snap set videobug-server aerospike-namespace=videobug
               snap set videobug-server s3-access-key={{ accessKey }}
               snap set videobug-server s3-secret-key={{ secretKey }}
       networks:
@@ -183,6 +197,74 @@ resources:
             sourceImage: https://www.googleapis.com/compute/v1/projects/{{ project }}/global/images/videobug-server
             diskType: projects/{{ project }}/zones/{{ zone }}/diskTypes/pd-ssd
 {% endfor %}
+  - name: videobug-1-members
+    action: gcp-types/compute-v1:compute.instanceGroups.addInstances
+    properties:
+      project: {{ project }}
+      zone: {{ zone }}
+      not: $(ref.videobug-server-group.selfLink)
+      instanceGroup: $(ref.videobug-server-group.name)
+      instances:
+      {% for node in videobugNodes %}
+        - instance: $(ref.{{ name }}-{{ node }}.selfLink)
+      {% endfor %}
+  - name: videobug-public-ip
+    type: compute.v1.globalAddresses
+    properties:
+      name: videobug-public-ip
+  - name: videobug-healthcheck
+    type: compute.v1.healthCheck
+    properties:
+      checkIntervalSec: 5
+      healthyThreshold: 2
+      httpHealthCheck:
+        host: ''
+        port: 80
+        proxyHeader: NONE
+        requestPath: /
+      timeoutSec: 5
+      type: HTTP
+      unhealthyThreshold: 2
+  - name: videobug-backend
+    type: compute.v1.backendServices
+    properties:
+      name: videobug-backend
+      portName: videobug-server-port
+      protocol: HTTP
+      healthChecks:
+        - $(ref.videobug-healthcheck.selfLink)
+      backends:
+        - description: videobug-server-backend
+          group: $(ref.videobug-server-group.selfLink)
+          balancingMode: UTILIZATION
+          maxUtilization: 0.8
+  - name: videobug-urlmap
+    type: compute.v1.urlMaps
+    properties:
+      name: videobug-backend
+      portName: videobug-server-port
+      protocol: HTTP
+      defaultService: $(ref.videobug-backend.selfLink)
+  - name: videobug-proxy
+    type: compute.v1.targetHttpProxies
+    properties:
+      name: videobug-proxy
+      urlMap: $(ref.videobug-urlmap.selfLink)
+  - name: videobug-http
+    type: compute.v1.globalForwardingRules
+    properties:
+      name: videobug-http
+      IPProtocol: TCP
+      ipVersion: IPV4
+      loadBalancingScheme: EXTERNAL
+      portRange: 80-80
+      region: {{ region }}
+      target: global/targetHttpProxies/$(ref.videobug-proxy.name)
+      not: $(ref.videobug-proxy.selfLink)
+  - name: videobug-bucket
+    type: storage.v1.bucket
+    properties:
+      name: videobug-state
 outputs:
   - name: deployment
     value: {{ deployment }}

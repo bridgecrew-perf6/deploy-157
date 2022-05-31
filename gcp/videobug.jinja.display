@@ -1,28 +1,11 @@
 description:
   author:
-    title: Etrans Lab
-    descriptionHtml: Etrans Lab
-    shortDescription: Etrans Lab
+    title: Videobug
+    descriptionHtml: Videobug time travel debugger
+    shortDescription: Videobug
   descriptionHtml: >-
-    The Open Source Airtable Alternative.
-
-    Rich Spreadsheet Interface: 
-
-    Search, sort, filter, hide columns with uber ease.
-
-    Create Views : Grid, Gallery, Kanban, Gantt, Form.
-
-    Share Views : public & password protected.
-
-    Personal & locked Views.
-
-    Upload images to cells.
-
-    Roles : Owner, Creator, Editor, Viewer, Commenter, Custom Roles.
-
-    Access Control : Fine-grained access control even at database, table &
-    column level.
-  logo: '@media/airtable_store.png'
+    The time travel debugger for JVM
+  logo: '@media/videobug.png'
   tagline: The Open Source Airtable Alternative
   title: Airtable
   url: 'https://www.aurora-ploar.com'
