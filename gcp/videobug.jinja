@@ -5,7 +5,7 @@
 {% set accessKey = properties["accessKey"] %}
 {% set secretKey = properties["secretKey"] %}
 {% set region = properties["region"] %}
-{% set name = env["project"] %}
+{% set name = env["deployment"] %}
 {% set instanceName = "%s-vm" % deployment %}
 {% set zone = properties["zone"] %}
 {% set machineType = properties["machineType"] %}
@@ -255,13 +255,13 @@ resources:
     properties:
       name: videobug-http
       IPProtocol: TCP
-      ipVersion: IPV4
+      IPAddress: $(ref.videobug-public-ip.selfLink)
       loadBalancingScheme: EXTERNAL
       portRange: 80-80
       region: {{ region }}
       target: global/targetHttpProxies/$(ref.videobug-proxy.name)
       not: $(ref.videobug-proxy.selfLink)
-  - name: videobug-bucket
+  - name: videobug-state
     type: storage.v1.bucket
     properties:
       name: videobug-state
@@ -272,3 +272,5 @@ outputs:
     value: {{ project }}
   - name: mainNetwork
     value: {{ networks[0] }}
+  - name: public-ip
+    value: $(ref.videobug-public-ip.address)
