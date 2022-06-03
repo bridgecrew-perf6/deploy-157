@@ -1,8 +1,8 @@
 imports:
-- path: airtable.jinja
+- path: videobug.jinja
 
 resources:
-- name: airtable
-  type: airtable.jinja
+- name: videobug
+  type: videobug.jinja
   properties:
     zone: us-central1-f
